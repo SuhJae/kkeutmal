@@ -2,3 +2,12 @@
 /parser/dict/
 /db_data/backup/words.archive
 .DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+build/
+dist/
