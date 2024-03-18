@@ -1,4 +1,5 @@
 from nextcord.ext import commands
+from nextcord import SlashOption
 
 from bot.logger import get_custom_logger
 from bot.db import DB
@@ -72,13 +73,13 @@ async def on_ready():
     log.info('======================================')
 
 
-@client.slash_command(name='핑', description='봇의 핑을 확인합니다')
+@client.slash_command(name='핑', description='봇의 핑을 확인합니다.')
 async def ping(ctx):
     await ctx.send(embed=embed.success(f'퐁! {round(client.latency * 1000)}ms'))
 
 
-@client.slash_command(name='검색', description='단어를 사전에서 검색합니다')
-async def search(ctx, word: str):
+@client.slash_command(name='사전', description='단어를 사전에서 검색합니다.')
+async def search(ctx, word: str = SlashOption(name="단어", description="검색할 단어를 입력해 주세요.")):
     definitions = db.get_definitions(word)
     if len(definitions) == 0:
         await ctx.send(embed=embed.error(f'`{word}`에 대한 정의를 찾을 수 없습니다.'))
@@ -92,6 +93,14 @@ async def search(ctx, word: str):
         view.message = message  # Store the message reference in the view
     else:
         await ctx.send(embed=definitions[0].to_embed())
+
+
+@search.on_autocomplete("word")
+async def preview(ctx, word: str):
+    if word:
+        await ctx.response.send_autocomplete(db.autocomplete(word))
+    else:
+        await ctx.response.send_autocomplete([])
 
 
 try:
