@@ -25,10 +25,36 @@ def compose_korean_char(chosung: str, jungsung: str, jongsung: str) -> str:
 
 def initial_letter(korean_char: str) -> Optional[str]:
     decomposed = decompose_korean_char(korean_char)
+
     if decomposed[0] in ['ㄴ', 'ㄹ'] and decomposed[1] in ['ㅣ', 'ㅑ', 'ㅕ', 'ㅛ', 'ㅠ', 'ㅖ', 'ㅒ']:
         decomposed[0] = 'ㅇ'
+    elif decomposed[0] == 'ㄹ' and decomposed[1] in ['ㅣ', 'ㅑ', 'ㅕ', 'ㅛ', 'ㅠ', 'ㅖ', 'ㅒ']:
+        decomposed[0] = 'ㄴ'
     elif decomposed[0] == 'ㄹ' and decomposed[1] in ['ㅏ', 'ㅗ', 'ㅜ', 'ㅡ']:
         decomposed[0] = 'ㄴ'
     result = compose_korean_char(decomposed[0], decomposed[1], decomposed[2])
 
     return None if result == korean_char else result
+
+
+def eh_or_ehro(korean_char: str) -> str:
+    decomposed = decompose_korean_char(korean_char)
+    if decomposed[2] == 'ㄹ' or decomposed[2] == ' ':
+        return '로'
+    else:
+        return '으로'
+
+
+def el_or_rel(korean_char: str) -> str:
+    decomposed = decompose_korean_char(korean_char)
+    if decomposed[2] == ' ':
+        return '를'
+    else:
+        return '을'
+
+
+def word_with_initial(word: str) -> str:
+    last_char = word[-1]
+    if initial_letter(last_char):
+        return f'{word}({initial_letter(last_char)})'
+    return word

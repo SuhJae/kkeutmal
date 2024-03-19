@@ -3,8 +3,9 @@ from nextcord import SlashOption
 
 from bot.logger import get_custom_logger
 from bot.db import DB
-from bot.enbeds import SimpleEmbed
+from bot.embeds import SimpleEmbed
 from bot.model import Word
+from bot.korean import eh_or_ehro, word_with_initial, el_or_rel
 
 import nextcord
 import platform
@@ -73,14 +74,80 @@ async def on_ready():
     log.info('======================================')
 
 
+@client.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    if message.content.startswith('> '):
+        return
+
+    guild_data = db.get_guild(message.guild.id)
+    if guild_data.word_chain_channel_id() == message.channel.id:
+        message_content = message.content.strip()
+        await message.delete()
+
+        if len(message_content) < 2:
+            await message.channel.send(
+                embed=embed.error(f'2글자 이상의 단어를 입력해주세요.', footer='팁: "> " 를 메세지 앞에 붙여 채팅메세지를 입력할 수 있습니다!'),
+                delete_after=5)
+            return
+
+        last_char, altnative_char = guild_data.get_last_character()
+
+        if message_content[0] != last_char and message_content[0] != altnative_char:
+            linkable_char = guild_data.get_linkable_char_str()
+
+            await message.channel.send(
+                embed=embed.error(
+                    text=f'단어의 첫 글자가 일치하지 않습니다.\n"**{linkable_char}**"{eh_or_ehro(last_char[0])} 시작하는 단어를 입력해주세요.',
+                    footer=f'팁: "> " 를 메세지 앞에 붙여 채팅메세지를 입력할 수 있습니다!'), delete_after=5)
+            return
+
+        if guild_data.is_word_in_chain(message_content):
+            await message.channel.send(
+                embed=embed.error(f'이미 [여기서]({guild_data.get_word_message_url(message_content)}) 사용된 단어입니다.'),
+                delete_after=5)
+            return
+
+        if not db.word_exists(message_content):
+            await message.channel.send(
+                embed=embed.error(f'존재하지 않는 단어입니다.', footer='팁: "> " 를 메세지 앞에 붙여 채팅메세지를 입력할 수 있습니다!'), delete_after=5)
+            return
+
+        prev_word = guild_data.get_last_word()
+        next_word = db.get_definitions(message_content)[0]
+
+        description_text = f'[{next_word.pronunciations}]' if next_word.pronunciations else ''
+        description_text += f' `{next_word.word_type}`' if next_word.word_type else ''
+        description_text += f' `{next_word.word_unit}`' if next_word.word_unit else ''
+
+        next_embed = nextcord.Embed(title=f'{word_with_initial(prev_word)} → {word_with_initial(message_content)}',
+                                    description=description_text, color=0x2B2D31)
+        next_embed.add_field(name=f'뜻풀이', value=SimpleEmbed.format_def(next_word), inline=False)
+        next_embed.set_author(name=message.author.display_name, icon_url=message.author.avatar.url)
+        next_embed.set_footer(text=f'콤보: {len(guild_data.word_chain)} | 최고 콤보: {guild_data.best_combo}')
+        message = await message.channel.send(embed=next_embed)
+
+        guild_data.add_word(message_content, message.id)
+        db.update_guild(guild_data)
+
+        if not db.can_play(guild_data):
+            game_over_embed = nextcord.Embed(title='게임 오버!',
+                                             description=f'더이상 "**{word_with_initial(message_content)}**"{el_or_rel(message_content[-1])} 이을 수 있는 단어가 없습니다!',
+                                             color=0xE74C3B)
+            game_over_embed.set_footer(text=f'최종 콤보: {len(guild_data.word_chain)}')
+            await message.channel.send(embed=game_over_embed)
+
+            start_word = db.find_valid_starting_word()
+            start_msg = await message.channel.send(embed=embed.game_start(db.get_definitions(start_word)[0]))
+            guild_data.initialize_chain(start_word, start_msg.id)
+            db.update_guild(guild_data)
+
+
 @client.slash_command(name='핑', description='봇의 핑을 확인합니다.')
 async def ping(ctx):
     await ctx.send(embed=embed.success(f'퐁! {round(client.latency * 1000)}ms'))
-
-
-@client.slash_command(name='랜덤', description='랜덤한 단어를 추천합니다.')
-async def random_word(ctx):
-    await ctx.send(db.random_word())
 
 
 @client.slash_command(name='설정', description='현재 명령어를 사용한 채널을 끝말잇기 채널로 설정합니다.', default_member_permissions=8)
@@ -104,10 +171,20 @@ async def set_channel(ctx):
             ephemeral=True)
 
     start_word = db.find_valid_starting_word()
-    start_msg = await ctx.channel.send(embed=embed.success(f'게임 시작 단어: {start_word}'))
+    start_msg = await ctx.channel.send(embed=embed.game_start(db.get_definitions(start_word)[0]))
     guild_data.initialize_chain(start_word, start_msg.id)
-
     db.update_guild(guild_data)
+
+
+@client.slash_command(name='재시작', description='끝말잇기 게임을 재시작합니다.')
+async def restart(ctx):
+    guild_data = db.get_guild(ctx.guild.id)
+    start_word = db.find_valid_starting_word()
+    await ctx.send(embed=embed.success('끝말잇기 게임이 재시작되었습니다.'))
+    start_msg = await ctx.channel.send(embed=embed.game_start(db.get_definitions(start_word)[0]))
+    guild_data.initialize_chain(start_word, start_msg.id)
+    db.update_guild(guild_data)
+
 
 
 @client.slash_command(name='사전', description='단어를 사전에서 검색합니다.')

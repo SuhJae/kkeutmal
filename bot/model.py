@@ -1,4 +1,5 @@
 from typing import Dict, Any, Optional
+from korean import initial_letter
 import nextcord
 import re
 
@@ -51,9 +52,9 @@ class Word:
 
     def quick_preview(self) -> str:
         """
-        :return: First 100 char of the first definition
+        :return: First 25 characters of the first definition
         """
-        return re.sub(pattern, '', self.definitions[0]['definition'])[:24]
+        return re.sub(pattern, '', self.definitions[0]['definition'])[:25]
 
 
 class Guild:
@@ -71,6 +72,9 @@ class Guild:
 
     def add_word(self, word: str, message_id: int) -> None:
         self.word_chain.append({'word': word, 'message_id': message_id})
+        currnt_combo = len(self.word_chain)
+        if currnt_combo > self.best_combo:
+            self.best_combo = currnt_combo
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -85,3 +89,16 @@ class Guild:
 
     def initialize_chain(self, word: str, message_id: int) -> None:
         self.word_chain = [{'word': word, 'message_id': message_id}]
+
+    def get_last_character(self) -> tuple[str, Optional[str]]:
+        return self.get_last_word()[-1], initial_letter(self.get_last_word()[-1])
+
+    def get_word_message_url(self, word: str) -> Optional[str]:
+        for chain in self.word_chain:
+            if chain['word'] == word:
+                return f'https://discord.com/channels/{self.guild_id}/{self.word_chain_channel}/{chain["message_id"]}'
+        return None
+
+    def get_linkable_char_str(self) -> str:
+        last_char, alt_char = self.get_last_character()
+        return f'{last_char}({alt_char})' if alt_char else last_char

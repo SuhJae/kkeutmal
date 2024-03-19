@@ -64,17 +64,16 @@ class DB:
 
         return [doc['_id'] for doc in results]
 
-    def linkable_words(self, link_char: str, cursor: str, limit: int = 10) -> List[str]:
+    def linkable_words(self, link_char: str, cursor: str) -> List[str]:
         """
-        Returns up to 10 unique words that start with the link_char and are not in the cursor list.
+        Returns all words that start with the link_char and are not in the cursor list.
         """
-        regex_pattern = f'^{sanitize_input(link_char)}'
 
         pipeline = [
             {'$match': {'word': {'$nin': cursor}}},
             {'$group': {'_id': '$word'}},
             {'$sort': {'_id': 1}},
-            {'$limit': limit}
+            {'$match': {'_id': {'$regex': f'^{sanitize_input(link_char)}'}}},
         ]
 
         results = self.words.aggregate(pipeline)
@@ -111,8 +110,8 @@ class DB:
         """
         word = self.random_word()
 
-        # Check if the word meets the criteria: longer than 2 chars and has at least 5 linkable words
-        if len(word) > 2 and len(self.autocomplete(word)) >= 5:
+        # Check if the word meets the criteria: longer than 2 chars and has at least 3 linkable words
+        if len(word) > 2 and len(self.autocomplete(word)) >= 3:
             return word
         else:
             # Recursively try another word if the criteria are not met
