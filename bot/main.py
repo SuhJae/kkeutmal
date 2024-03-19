@@ -64,11 +64,11 @@ class WordDefinitionSelectView(nextcord.ui.View):
 @client.event
 async def on_ready():
     # set status
-    await client.change_presence(activity=nextcord.Game(name='끝말'))
+    await client.change_presence(activity=nextcord.Game(name='/도움말 | 끝말잇기'))
 
     # print startup message
     log.info('Bot is ready')
-    log.info(f'======================================')
+    log.info('======================================')
     log.info(f'Logged in as {client.user.name}#{client.user.discriminator} ({client.user.id})')
     log.info(f'Currenly running nextcord {nextcord.__version__} on python {platform.python_version()}')
     log.info('======================================')
@@ -134,7 +134,8 @@ async def on_message(message):
 
         if not db.can_play(guild_data):
             game_over_embed = nextcord.Embed(title='게임 오버!',
-                                             description=f'더이상 "**{word_with_initial(message_content)}**"{el_or_rel(message_content[-1])} 이을 수 있는 단어가 없습니다!',
+                                             description=f'더이상 "**{word_with_initial(message_content)}**"'
+                                                         f'{el_or_rel(message_content[-1])} 이을 수 있는 단어가 없습니다!',
                                              color=0xE74C3B)
             game_over_embed.set_footer(text=f'최종 콤보: {len(guild_data.word_chain)}')
             await message.channel.send(embed=game_over_embed)
@@ -147,7 +148,8 @@ async def on_message(message):
 
 @client.slash_command(name='핑', description='봇의 핑을 확인합니다.')
 async def ping(ctx):
-    await ctx.send(embed=embed.success(f'퐁! {round(client.latency * 1000)}ms'))
+    is_word_chain_channel = db.get_guild(ctx.guild.id).is_word_chain_channel(ctx.channel.id)
+    await ctx.send(embed=embed.success(f'퐁! {round(client.latency * 1000)}ms'), ephemeral=is_word_chain_channel)
 
 
 @client.slash_command(name='설정', description='현재 명령어를 사용한 채널을 끝말잇기 채널로 설정합니다.', default_member_permissions=8)
@@ -186,19 +188,24 @@ async def restart(ctx):
     db.update_guild(guild_data)
 
 
-
-@client.slash_command(name='사전', description='단어를 사전에서 검색합니다.')
+@client.slash_command(name='뜻풀이', description='단어의 뜻을 확인합니다.')
 async def search(ctx, word: str = SlashOption(name="단어", description="검색할 단어를 입력해 주세요.")):
     log.info(f'{ctx.user.name}({ctx.user.id}) searched: {word}')
+    is_word_chain_channel = db.get_guild(ctx.guild.id).is_word_chain_channel(ctx.channel.id)
+
+    if is_word_chain_channel:
+        await ctx.response.send_message(embed=embed.error('끝말잇기 채널에서는 사용할 수 없는 명령어입니다.'), ephemeral=True)
+        return
+
     definitions = db.get_definitions(word)
     if len(definitions) == 0:
-        await ctx.send(embed=embed.error(f'`{word}`에 대한 정의를 찾을 수 없습니다.'))
+        await ctx.send(embed=embed.error(f'`{word}`에 대한 뜻풀이를 찾을 수 없습니다.'), ephemeral=True)
         return
 
     if len(definitions) > 1:
         view = WordDefinitionSelectView(definitions[:25])
         message = await ctx.send(embed=definitions[0].to_embed(), view=view)
-        view.message = message  # Store the message reference in the view
+        view.message = message
     else:
         await ctx.send(embed=definitions[0].to_embed())
 
@@ -209,6 +216,19 @@ async def preview(ctx, word: str):
         await ctx.response.send_autocomplete(db.autocomplete(word))
     else:
         await ctx.response.send_autocomplete([])
+
+
+@client.slash_command(name='도움말', description='봇의 명령어 목록을 확인합니다.')
+async def help_menu(ctx):
+    is_word_chain_channel = db.get_guild(ctx.guild.id).is_word_chain_channel(ctx.channel.id)
+
+    help_embed = nextcord.Embed(title='도움말', description='끝말잇기 봇의 명령어 목록입니다.', color=0x2B2D31)
+    help_embed.add_field(name='`/핑`', value='봇의 핑을 확인합니다.', inline=False)
+    help_embed.add_field(name='`/설정`', value='현재 명령어를 사용한 채널을 끝말잇기 채널로 설정합니다.', inline=False)
+    help_embed.add_field(name='`/재시작`', value='끝말잇기 게임을 재시작합니다.', inline=False)
+    help_embed.add_field(name='`/뜻풀이`', value='단어의 뜻을 확인합니다.', inline=False)
+    help_embed.add_field(name='`/도움말`', value='봇의 명령어 목록을 확인합니다.', inline=False)
+    await ctx.send(embed=help_embed, ephemeral=is_word_chain_channel)
 
 
 try:

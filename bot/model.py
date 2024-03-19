@@ -102,3 +102,6 @@ class Guild:
     def get_linkable_char_str(self) -> str:
         last_char, alt_char = self.get_last_character()
         return f'{last_char}({alt_char})' if alt_char else last_char
+
+    def is_word_chain_channel(self, channel_id: int) -> bool:
+        return self.word_chain_channel == channel_id
