@@ -1,10 +1,10 @@
 import os
 from typing import Dict, Any, Optional, List
 from pymongo import MongoClient
-import time
 import re
 
-from bot.model import Word
+from bot.model import Word, Guild
+from bot.korean import initial_letter
 
 
 def sanitize_input(input_str: str) -> str:
@@ -22,20 +22,35 @@ class DB:
         else:
             self.mongo_client = mongo_client_param
         self.db = self.mongo_client['kkeutmal']
-        self.collection = self.db['words']
+        self.words = self.db['words']
+        self.guilds = self.db['servers']
         self._ensure_indexes()
 
     def _ensure_indexes(self) -> None:
         """
         Ensures the necessary indexes are created for efficient querying.
         """
-        self.collection.create_index([('word', 1), ('word_number', 1)], unique=True)
+        self.words.create_index([('word', 1), ('word_number', 1)], unique=True)
+        self.guilds.create_index('server_id', unique=True)
+
+    def add_guild(self, server_id: int) -> None:
+        self.guilds.insert_one({'server_id': server_id})
+
+    def get_guild(self, server_id: int) -> Guild:
+        result = self.guilds.find_one({'server_id': server_id})
+        if result:
+            return Guild(self.guilds.find_one({'server_id': server_id}))
+        else:
+            self.add_guild(server_id)
+            return Guild({'server_id': server_id})
+
+    def update_guild(self, guild: Guild) -> None:
+        self.guilds.update_one({'server_id': guild.guild_id}, {'$set': guild.to_dict()})
 
     def autocomplete(self, prefix: str) -> List[str]:
         """
         Returns up to 15 unique words matching the prefix pattern.
         """
-        # Assuming the prefix is directly usable after sanitization
         regex_pattern = f'^{sanitize_input(prefix)}'
 
         pipeline = [
@@ -45,22 +60,85 @@ class DB:
             {'$limit': 15}
         ]
 
-        results = self.collection.aggregate(pipeline)
+        results = self.words.aggregate(pipeline)
 
+        return [doc['_id'] for doc in results]
+
+    def linkable_words(self, link_char: str, cursor: str, limit: int = 10) -> List[str]:
+        """
+        Returns up to 10 unique words that start with the link_char and are not in the cursor list.
+        """
+        regex_pattern = f'^{sanitize_input(link_char)}'
+
+        pipeline = [
+            {'$match': {'word': {'$nin': cursor}}},
+            {'$group': {'_id': '$word'}},
+            {'$sort': {'_id': 1}},
+            {'$limit': limit}
+        ]
+
+        results = self.words.aggregate(pipeline)
         return [doc['_id'] for doc in results]
 
     def word_exists(self, word: str) -> bool:
         """
         Fastest way to check the membership of a word in the collection.
         """
-        count = self.collection.count_documents({'word': word})
+        count = self.words.count_documents({'word': word})
         return count > 0
 
     def get_word(self, word: str) -> Dict[str, Any]:
         """
         Returns the word object from the collection.
         """
-        return self.collection.find_one({'word': word})
+        return self.words.find_one({'word': word})
+
+    def random_word(self) -> str:
+        """
+        Returns a random word from the collection.
+        """
+        pipeline = [
+            {'$sample': {'size': 1}}
+        ]
+
+        results = self.words.aggregate(pipeline)
+        return next(results)['word']
+
+    def find_valid_starting_word(self) -> str:
+        """
+        Finds a valid starting word for the game that is longer than 2 characters
+        and has at least 5 linkable words.
+        """
+        word = self.random_word()
+
+        # Check if the word meets the criteria: longer than 2 chars and has at least 5 linkable words
+        if len(word) > 2 and len(self.autocomplete(word)) >= 5:
+            return word
+        else:
+            # Recursively try another word if the criteria are not met
+            return self.find_valid_starting_word()
+
+    def can_play(self, guild: Guild) -> bool:
+        if not guild.word_chain:
+            return False
+        last_word = guild.get_last_word()
+        if not last_word:
+            return False
+
+        def try_play(chain_char, excluded_words):
+            linkable_words = self.linkable_words(chain_char, excluded_words)
+
+            if linkable_words:
+                return True  # If there are linkable words, the game can still be played.
+            # Check with initial letter law (두음 법칙)
+            alternate_char = initial_letter(chain_char)
+            if alternate_char:
+                linkable_words_alt = self.linkable_words(alternate_char, excluded_words)
+                if linkable_words_alt:
+                    return True  # Found playable words with alternate initial letter.
+            return False  # No playable words found, game over.
+
+        return try_play(last_word[-1], [word_dict['word'] for word_dict in guild.word_chain])
 
     def get_definitions(self, word: str) -> List[Word]:
         """
@@ -68,23 +146,5 @@ class DB:
         If no definitions are found, returns an empty list.
         This version assumes case-sensitive exact matches for efficiency.
         """
-        documents = self.collection.find({'word': word})
+        documents = self.words.find({'word': word})
         return [Word(doc) for doc in documents]
-
-
-# Example usage
-if __name__ == '__main__':
-    db_manager = DB()
-    word_to_check = '한국'
-    start_time = time.time()
-    exists = db_manager.word_exists(word_to_check)
-
-    print(f'\'{word_to_check}\' exists: {exists} ({(time.time() - start_time) * 1000:.2f} ms)')
-
-    start_time = time.time()
-
-    for words in db_manager.get_definitions(word_to_check):
-        print(words)
-        print('-' * 40)
-
-    print(f'Retrieved definitions for \'{word_to_check}\' in {(time.time() - start_time) * 1000:.2f} ms')

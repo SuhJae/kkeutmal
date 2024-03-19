@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import nextcord
 import re
 
@@ -56,9 +56,32 @@ class Word:
         return re.sub(pattern, '', self.definitions[0]['definition'])[:24]
 
 
-class Server:
+class Guild:
     def __init__(self, server_dict: Dict[str, Any]) -> None:
-        self.server_id = server_dict.get('server_id')
-        self.prefix = server_dict.get('prefix', '!')
-        self.language = server_dict.get('language', 'ko')
-        self.word_list = [Word(word_dict) for word_dict in server_dict.get('word_list', [])]
+        self.guild_id = server_dict.get('server_id')
+        self.word_chain_channel = server_dict.get('word_chain_channel', None)
+        self.word_chain = server_dict.get('word_chain', [])
+        self.best_combo = server_dict.get('best_combo', 0)
+
+    def get_last_word(self) -> str:
+        return self.word_chain[-1]['word']
+
+    def word_chain_channel_id(self) -> Optional[int]:
+        return self.word_chain_channel
+
+    def add_word(self, word: str, message_id: int) -> None:
+        self.word_chain.append({'word': word, 'message_id': message_id})
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'server_id': self.guild_id,
+            'word_chain_channel': self.word_chain_channel,
+            'word_chain': self.word_chain,
+            'best_combo': self.best_combo
+        }
+
+    def is_word_in_chain(self, word: str) -> bool:
+        return word in [word['word'] for word in self.word_chain]
+
+    def initialize_chain(self, word: str, message_id: int) -> None:
+        self.word_chain = [{'word': word, 'message_id': message_id}]
