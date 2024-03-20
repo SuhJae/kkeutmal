@@ -105,3 +105,18 @@ class Guild:
 
     def is_word_chain_channel(self, channel_id: int) -> bool:
         return self.word_chain_channel == channel_id
+
+
+class User:
+    def __init__(self, user_dict: dict) -> None:
+        self.user_id = user_dict.get('user_id')
+        self.used_words = user_dict.get('used_words', {})
+        self.experience = user_dict.get('experience', 0)
+        self.total_words = user_dict.get('total_words', 0)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'user_id': self.user_id,
+            'used_words': self.used_words,
+            'experience': self.experience
+        }

@@ -28,12 +28,11 @@ class SimpleEmbed:
         return embed
 
     @staticmethod
-    def format_def(word: Word) -> str:
+    def format_def(word: Word, prefix: str = '') -> str:
         def_text = ''
         for i, definition_info in enumerate(word.definitions):
             definition = definition_info['definition']
             definition = re.sub(pattern, '', definition)
-
-            def_text += f'`「{i + 1}」` {definition}\n'
+            def_text += f'{prefix}`「{i + 1}」` {definition}\n'
 
         return def_text

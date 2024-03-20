@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional, List
 from pymongo import MongoClient
 import re
 
-from bot.model import Word, Guild
+from bot.model import Word, Guild, User
 from bot.korean import initial_letter
 
 
@@ -24,6 +24,7 @@ class DB:
         self.db = self.mongo_client['kkeutmal']
         self.words = self.db['words']
         self.guilds = self.db['servers']
+        self.users = self.db['users']
         self._ensure_indexes()
 
     def _ensure_indexes(self) -> None:
@@ -32,14 +33,57 @@ class DB:
         """
         self.words.create_index([('word', 1), ('word_number', 1)], unique=True)
         self.guilds.create_index('server_id', unique=True)
+        self.users.create_index('user_id', unique=True)
+        self.users.create_index([('used_words.word', 1)])
+
+    def get_user(self, user_id: int) -> User:
+        result: Optional[Dict[str, Any]] = self.users.find_one({'user_id': user_id})
+        if result:
+            return User(result)
+        else:
+            # Assuming you want to automatically create a user if not found
+            new_user_dict = {'user_id': user_id, 'used_words': {}, 'experience': 0}
+            self.users.insert_one(new_user_dict)
+            return User(new_user_dict)
+
+    def add_user_word(self, user: User, word: str) -> None:
+        self.users.update_one(
+            {'user_id': user.user_id},
+            {'$inc': {f'used_words.{word}': 1, 'total_words': 1}},
+            upsert=True
+        )
+
+        # Update the local user object as well
+        user.used_words[word] = user.used_words.get(word, 0) + 1
+        user.total_words += 1
+
+    def add_user_experience(self, user: User, experience: int) -> None:
+        self.users.update_one(
+            {'user_id': user.user_id},
+            {'$inc': {'experience': experience}}
+        )
+        # Update the local user object as well
+        user.experience += experience
+
+    def get_favorite_words(self, user: User, count: int) -> list[dict]:
+        pipeline = [
+            {'$match': {'user_id': user.user_id}},
+            {'$project': {'_id': 0, 'words': {'$objectToArray': '$used_words'}}},
+            {'$unwind': '$words'},
+            {'$sort': {'words.v': -1}},
+            {'$limit': count},
+            {'$project': {'word': '$words.k', 'count': '$words.v'}}
+        ]
+        result = self.users.aggregate(pipeline)
+        return [{doc['word']: doc['count']} for doc in result]
 
     def add_guild(self, server_id: int) -> None:
         self.guilds.insert_one({'server_id': server_id})
 
     def get_guild(self, server_id: int) -> Guild:
-        result = self.guilds.find_one({'server_id': server_id})
+        result: Optional[Dict[str, Any]] = self.guilds.find_one({'server_id': server_id})
         if result:
-            return Guild(self.guilds.find_one({'server_id': server_id}))
+            return Guild(result)
         else:
             self.add_guild(server_id)
             return Guild({'server_id': server_id})
@@ -136,7 +180,6 @@ class DB:
                 if linkable_words_alt:
                     return True  # Found playable words with alternate initial letter.
             return False  # No playable words found, game over.
-
         return try_play(last_word[-1], [word_dict['word'] for word_dict in guild.word_chain])
 
     def get_definitions(self, word: str) -> List[Word]:

@@ -1,3 +1,5 @@
+import math
+
 from nextcord.ext import commands
 from nextcord import SlashOption
 
@@ -127,11 +129,12 @@ async def on_message(message):
         next_embed.add_field(name=f'뜻풀이', value=SimpleEmbed.format_def(next_word), inline=False)
         next_embed.set_author(name=message.author.display_name, icon_url=message.author.avatar.url)
         next_embed.set_footer(text=f'콤보: {len(guild_data.word_chain)} | 최고 콤보: {guild_data.best_combo}')
-        message = await message.channel.send(embed=next_embed)
+        next_message = await message.channel.send(embed=next_embed)
 
-        guild_data.add_word(message_content, message.id)
+        guild_data.add_word(message_content, next_message.id)
         db.update_guild(guild_data)
 
+        # Determine if the game is over
         if not db.can_play(guild_data):
             game_over_embed = nextcord.Embed(title='게임 오버!',
                                              description=f'더이상 "**{word_with_initial(message_content)}**"'
@@ -144,6 +147,10 @@ async def on_message(message):
             start_msg = await message.channel.send(embed=embed.game_start(db.get_definitions(start_word)[0]))
             guild_data.initialize_chain(start_word, start_msg.id)
             db.update_guild(guild_data)
+
+        user_data = db.get_user(message.author.id)
+        db.add_user_word(user_data, message_content)
+        db.add_user_experience(user_data, len(message_content) ** 2)
 
 
 @client.slash_command(name='핑', description='봇의 핑을 확인합니다.')
@@ -178,6 +185,31 @@ async def set_channel(ctx):
     db.update_guild(guild_data)
 
 
+@client.slash_command(name='프로필', description='자신 또는 다른 사용자의 프로필을 확인합니다.')
+async def profile(ctx, user: nextcord.Member = SlashOption(name="사용지", description="프로필을 확인할 사용자를 입력해 주세요.",
+                                                           required=False)):
+    is_word_chain_channel = db.get_guild(ctx.guild.id).is_word_chain_channel(ctx.channel.id)
+    if not user:
+        user = ctx.user
+
+    user_data = db.get_user(user.id)
+    log.info(f'{ctx.user.name}({ctx.user.id}) requested profile of {user.name}({user.id})')
+    description_text = f'경험치: **{user_data.experience}**\n사용한 단어 수: **{user_data.total_words}**\n\n\n__**자주 사용한 단어**__'
+
+    user_embed = nextcord.Embed(title=f'{user.display_name}의 프로필', description=description_text,
+                                color=user.accent_color)
+    user_embed.set_thumbnail(url=user.avatar.url)
+    user_embed.set_footer(text=f'사용자 ID: {user.id}')
+
+    favorite_words = db.get_favorite_words(user_data, 10)
+    for word in favorite_words:
+        word_obj = db.get_definitions(list(word.keys())[0])[0]
+        user_embed.add_field(name=f'◼︎ {list(word.keys())[0]} - {list(word.values())[0]} 회 사용',
+                             value=embed.format_def(word_obj, '> '), inline=False)
+
+    await ctx.send(embed=user_embed, ephemeral=is_word_chain_channel)
+
+
 @client.slash_command(name='재시작', description='끝말잇기 게임을 재시작합니다.')
 async def restart(ctx):
     guild_data = db.get_guild(ctx.guild.id)
@@ -188,7 +220,7 @@ async def restart(ctx):
     db.update_guild(guild_data)
 
 
-@client.slash_command(name='뜻풀이', description='단어의 뜻을 확인합니다.')
+@client.slash_command(name='사전', description='단어의 뜻을 확인합니다.')
 async def search(ctx, word: str = SlashOption(name="단어", description="검색할 단어를 입력해 주세요.")):
     log.info(f'{ctx.user.name}({ctx.user.id}) searched: {word}')
     is_word_chain_channel = db.get_guild(ctx.guild.id).is_word_chain_channel(ctx.channel.id)
@@ -228,6 +260,7 @@ async def help_menu(ctx):
     help_embed.add_field(name='`/재시작`', value='끝말잇기 게임을 재시작합니다.', inline=False)
     help_embed.add_field(name='`/뜻풀이`', value='단어의 뜻을 확인합니다.', inline=False)
     help_embed.add_field(name='`/도움말`', value='봇의 명령어 목록을 확인합니다.', inline=False)
+    help_embed.add_field(name='`/프로필`', value='자신 또는 다른 사용자의 프로필을 확인합니다.', inline=False)
     await ctx.send(embed=help_embed, ephemeral=is_word_chain_channel)
 
 
