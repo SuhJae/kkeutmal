@@ -8,6 +8,8 @@ services:
       - "27017"
     ports:
       - "27017:27017"
+    restart: always
+
   bot:
     build: .
     environment:
@@ -16,6 +18,7 @@ services:
       - mongo
     volumes:
       - ./bot:/bot
+    restart: always
 
 volumes:
   mongo_data:
